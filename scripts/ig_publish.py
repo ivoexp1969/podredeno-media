@@ -126,6 +126,11 @@ def create_containers(ig_id, entry):
         cid = api("POST", f"{ig_id}/media", {"image_url": urls[0], "caption": caption})["id"]
         wait_finished(cid, "image")
         return cid
+    if kind == "story":
+        key = "video_url" if Path(entry["files"][0]).suffix.lower() in VIDEO_EXT else "image_url"
+        cid = api("POST", f"{ig_id}/media", {"media_type": "STORIES", key: urls[0]})["id"]
+        wait_finished(cid, "story")
+        return cid
     if kind == "reel":
         params = {"media_type": "REELS", "video_url": urls[0], "caption": caption,
                   "share_to_feed": "true" if entry.get("share_to_feed", True) else "false"}
@@ -184,14 +189,14 @@ def validate(entry, root):
     kind = entry.get("type")
     files = entry.get("files")
     caption = entry.get("caption", "")
-    if kind not in ("image", "carousel", "reel"):
-        raise PublishError(f"type must be image, carousel or reel (got {kind!r})")
+    if kind not in ("image", "carousel", "reel", "story"):
+        raise PublishError(f"type must be image, carousel, reel or story (got {kind!r})")
     if not isinstance(files, list) or not files or not all(isinstance(f, str) for f in files):
         raise PublishError("files must be a non-empty list of repository paths")
     if not isinstance(caption, str):
         raise PublishError("caption must be a string")
     n = len(files)
-    if kind in ("image", "reel") and n != 1:
+    if kind in ("image", "reel", "story") and n != 1:
         raise PublishError(f"{kind} needs exactly 1 file (got {n})")
     if kind == "carousel" and not 2 <= n <= 10:
         raise PublishError(f"carousel needs 2-10 files (got {n})")
@@ -209,9 +214,18 @@ def validate(entry, root):
             raise PublishError(f"file not found in repository: {rel}")
         ext = p.suffix.lower()
         size = p.stat().st_size
-        if kind == "reel":
+        if kind == "reel" or (kind == "story" and ext in VIDEO_EXT):
             if ext not in VIDEO_EXT:
                 raise PublishError(f"{rel}: reel must be .mp4 or .mov")
+            continue
+        if kind == "story":
+            if ext not in IMAGE_EXT:
+                raise PublishError(f"{rel}: story must be JPEG or .mp4/.mov")
+            if size > MAX_IMAGE_BYTES:
+                raise PublishError(f"{rel}: {size / 1048576:.1f} MB (max 8 MB)")
+            w, h = jpeg_size(p)
+            if abs(w / h - 9 / 16) > 0.02:
+                warnings.append(f"{rel}: {w}x{h}; stories look best at 1080x1920 (9:16)")
             continue
         if ext not in IMAGE_EXT:
             raise PublishError(f"{rel}: images must be JPEG (.jpg/.jpeg)")
@@ -263,6 +277,18 @@ def cmd_publish(args):
         log(f"Sofia time is {now:%H:%M}; publishing starts at {PUBLISH_HOUR}:00. Nothing to do.")
         return 0
 
+    rc = 0
+    for name in (date, f"{date}-story"):
+        try:
+            publish_one(args, root, name)
+        except PublishError as e:
+            print(f"ERROR [{name}]: {e}", file=sys.stderr, flush=True)
+            rc = 1
+    return rc
+
+
+def publish_one(args, root, date):
+    """Publish queue/<date>.json, where <date> may carry a suffix like -story."""
     qfile = root / "queue" / f"{date}.json"
     pfile = root / "published" / f"{date}.json"
     if pfile.exists():

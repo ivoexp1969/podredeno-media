@@ -19,6 +19,14 @@
 `type` е `image` (1 файл), `carousel` (2–10 JPEG) или `reel` (1 видео; по желание
 `"share_to_feed": false` и `"thumb_offset": 1500` в милисекунди).
 
+Story: отделен файл `queue/YYYY-MM-DD-story.json` с `{"type": "story", "files": ["media/.../s.jpg"]}`
+(1 JPEG 1080×1920 или 1 видео 3–60 сек). Без надпис; стикери „Линк“ и анкети не се
+поддържат от API — текстът трябва да е в самата картинка. Публикува се в същото
+пускане като поста за деня.
+
+Видео материал за Reels: `media/source/` (записи на екрана без лични данни);
+`media/source/USED.md` пази кой запис в коя дата е използван.
+
 Workflow „Publish to Instagram“ се пуска всеки ден и публикува файла за деня след
 18:00 часа София (GitHub Actions може да закъснее). След успех записът отива в
 `published/YYYY-MM-DD.json` с `media_id`, `permalink` и `published_at`.

@@ -198,7 +198,7 @@ class PublishTests(unittest.TestCase):
     def test_validation_errors(self):
         cases = [
             ({"type": "carousel", "files": self.files[:1], "caption": ""}, "2-10 files"),
-            ({"type": "story", "files": self.files[:1]}, "type must be"),
+            ({"type": "video", "files": self.files[:1]}, "type must be"),
             ({"type": "image", "files": ["media/nope.jpg"]}, "file not found"),
             ({"type": "image", "files": self.files[:1], "caption": "x" * 2201}, "max 2200"),
             ({"type": "image", "files": self.files[:1], "caption": " ".join(f"#t{i}" for i in range(31))}, "hashtags"),
@@ -209,6 +209,29 @@ class PublishTests(unittest.TestCase):
                 r = self.run_script("publish", "--date", "2026-11-17", "--dry-run", "--root", str(self.root))
                 self.assertEqual(r.returncode, 1)
                 self.assertIn(msg, r.stderr)
+
+    def test_story_published_from_story_queue_file(self):
+        make_jpeg(self.root / "media" / "s.jpg", 1080, 1920)
+        self.queue(self.carousel())
+        (self.root / "queue" / "2026-11-17-story.json").write_text(
+            json.dumps({"type": "story", "files": ["media/s.jpg"]}), encoding="utf-8")
+        r = self.run_script("publish", "--date", "2026-11-17", "--root", str(self.root), ig_user_id="1789")
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        stories = [c for c in Fake.calls if c[0] == "POST" and c[2].get("media_type") == "STORIES"]
+        self.assertEqual(len(stories), 1)
+        self.assertTrue(stories[0][2]["image_url"].endswith("/pages/media/s.jpg"))
+        self.assertEqual(sum(1 for c in Fake.calls if c[1].endswith("media_publish")), 2)
+        self.assertTrue((self.root / "published" / "2026-11-17.json").exists())
+        self.assertTrue((self.root / "published" / "2026-11-17-story.json").exists())
+        self.assertFalse((self.root / "queue" / "2026-11-17-story.json").exists())
+
+    def test_story_alone_without_feed_post(self):
+        make_jpeg(self.root / "media" / "s.jpg", 1080, 1920)
+        (self.root / "queue" / "2026-11-17-story.json").write_text(
+            json.dumps({"type": "story", "files": ["media/s.jpg"]}), encoding="utf-8")
+        r = self.run_script("publish", "--date", "2026-11-17", "--dry-run", "--root", str(self.root))
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        self.assertIn("DRY RUN OK", r.stdout)
 
     def test_bad_aspect_ratio(self):
         make_jpeg(self.root / "media" / "wide.jpg", 2000, 1000)  # 2.0 > 1.91
