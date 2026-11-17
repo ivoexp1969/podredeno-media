@@ -1,0 +1,36 @@
+name: Refresh Instagram token
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"  # every Monday 03:17 UTC; the token lives 60 days
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT_SECRETS }}
+        run: |
+          [ -n "$IG_ACCESS_TOKEN" ] || { echo "::error::Secret IG_ACCESS_TOKEN is missing"; exit 1; }
+          [ -n "$GH_TOKEN" ] || { echo "::error::Secret GH_PAT_SECRETS is missing"; exit 1; }
+
+      - name: Refresh and store token
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT_SECRETS }}
+          REPO: ${{ github.repository }}
+        run: |
+          tok="$RUNNER_TEMP/ig_token"
+          trap 'rm -f "$tok"' EXIT
+          python3 scripts/ig_publish.py refresh --out "$tok"
+          gh secret set IG_ACCESS_TOKEN --repo "$REPO" < "$tok"
+          echo "Secret IG_ACCESS_TOKEN updated."

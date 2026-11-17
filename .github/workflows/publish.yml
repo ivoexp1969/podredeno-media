@@ -1,0 +1,66 @@
+name: Publish to Instagram
+
+on:
+  schedule:
+    # GitHub cron is UTC only. The script skips the run until 18:00 Sofia time.
+    - cron: "0 15 * * *"  # 18:00 Sofia in summer (EEST, UTC+3); 17:00 in winter -> skipped
+    - cron: "0 16 * * *"  # 18:00 Sofia in winter (EET, UTC+2); in summer a retry at 19:00
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Date YYYY-MM-DD (empty = today in Sofia)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Dry run: check everything, do not publish"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instagram-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          GRAPH_VERSION: ${{ vars.GRAPH_VERSION }}
+          PAGES_BASE: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_DATE: ${{ inputs.date }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=(publish)
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            args+=(--respect-time)
+          else
+            [ -n "$INPUT_DATE" ] && args+=(--date "$INPUT_DATE")
+            [ "$INPUT_DRY_RUN" = "true" ] && args+=(--dry-run)
+          fi
+          python3 scripts/ig_publish.py "${args[@]}"
+
+      - name: Save published record
+        if: always()
+        run: |
+          if [ -z "$(git status --porcelain -- queue published)" ]; then
+            echo "Nothing to commit."; exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- queue published
+          git commit -m "Published $(ls -t published/*.json | head -1 | xargs basename .json)"
+          for i in 1 2 3 4 5; do
+            git pull --rebase -q && git push && exit 0
+            sleep $((i * 5))
+          done
+          echo "::error::Post is published but the record could not be pushed. Commit published/ manually to avoid a repost."
+          exit 1
