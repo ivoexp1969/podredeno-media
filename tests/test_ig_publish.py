@@ -68,6 +68,8 @@ class Fake(BaseHTTPRequestHandler):
         if path == "/refresh_access_token":
             return self._send(200, {"access_token": "NEW-TOKEN-456", "token_type": "bearer", "expires_in": 5183944})
         parts = path.strip("/").split("/")[1:]  # drop version
+        if parts == ["1789"] and q.get("fields") == "username":
+            return self._send(200, {"id": "1789", "username": "podredeno.bg"})
         if parts == ["me"]:
             return self._send(200, {"user_id": "1789", "username": "podredeno.bg"})
         if parts == ["1789", "media"] and self.command == "POST":
@@ -116,10 +118,13 @@ class PublishTests(unittest.TestCase):
     def queue(self, entry, date="2026-11-17"):
         (self.root / "queue" / f"{date}.json").write_text(json.dumps(entry, ensure_ascii=False), encoding="utf-8")
 
-    def run_script(self, *args, token=TOKEN):
+    def run_script(self, *args, token=TOKEN, ig_user_id=None):
         env = dict(os.environ, GRAPH_BASE=self.base, GRAPH_VERSION="v24.0",
                    PAGES_BASE=self.base + "/pages", IG_ACCESS_TOKEN=token, POLL_INTERVAL="0.01")
         env.pop("GITHUB_ACTIONS", None)
+        env.pop("IG_USER_ID", None)
+        if ig_user_id:
+            env["IG_USER_ID"] = ig_user_id
         return subprocess.run([sys.executable, str(SCRIPT), *args], env=env,
                               capture_output=True, text=True, timeout=60)
 
@@ -141,6 +146,15 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(parent["caption"], "Подредено ✨ #дом")
         self.assertTrue(all(p[2].get("is_carousel_item") == "true" for p in posts[:6]))
         self.assertNotIn(TOKEN, r.stdout + r.stderr)
+
+    def test_unified_login_uses_ig_user_id_not_me(self):
+        self.queue(self.carousel())
+        r = self.run_script("publish", "--date", "2026-11-17", "--dry-run", "--root", str(self.root),
+                            ig_user_id="1789")
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        self.assertIn("Token OK for @podredeno.bg (id 1789)", r.stdout)
+        self.assertFalse(any(c[1].endswith("/me") for c in Fake.calls))
+        self.assertIn("DRY RUN OK", r.stdout)
 
     def test_publish_moves_record_and_is_idempotent(self):
         self.queue(self.carousel())

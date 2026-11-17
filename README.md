@@ -38,11 +38,13 @@ Actions → Publish to Instagram → Run workflow. `Dry run` е включен �
 
 ## Secrets (Settings → Secrets and variables → Actions)
 
-- `IG_ACCESS_TOKEN`: дълготраен Instagram токен. Подновява се автоматично всеки
-  понеделник от workflow „Refresh Instagram token“.
-- `GH_PAT_SECRETS`: fine-grained PAT само за това хранилище с право
-  „Secrets: Read and write“. Нужен е, за да може подновеният токен да се запише.
-- По желание, в Variables: `GRAPH_VERSION` (по подразбиране `v24.0`).
+- `IG_ACCESS_TOKEN`: system-user токен (Unified login) от бизнес портфолиото
+  „Подредено“ → System users → podredeno-bot → Generate token, приложение
+  podredeno-publisher, разрешения `instagram_basic` и `instagram_content_publish`,
+  срок **Never** — не се подновява.
+- По желание, в Variables: `IG_USER_ID` (по подразбиране 17841471323988630 =
+  @podredeno.bg) и `GRAPH_VERSION` (по подразбиране `v24.0`).
+- Публикуването минава през `graph.facebook.com`.
 
 ## Тестове
 

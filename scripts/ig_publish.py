@@ -24,7 +24,8 @@ from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Europe/Sofia")
 PUBLISH_HOUR = 18
-GRAPH_BASE = os.environ.get("GRAPH_BASE", "https://graph.instagram.com").rstrip("/")
+# Unified login (system-user token) publishes through graph.facebook.com.
+GRAPH_BASE = (os.environ.get("GRAPH_BASE") or "https://graph.facebook.com").rstrip("/")
 GRAPH_VERSION = os.environ.get("GRAPH_VERSION") or "v24.0"
 PAGES_BASE = os.environ.get("PAGES_BASE", "https://ivoexp1969.github.io/podredeno-media").rstrip("/")
 POLL_INTERVAL = float(os.environ.get("POLL_INTERVAL", "5"))
@@ -84,6 +85,16 @@ def api(method, path, params=None, versioned=True):
 
 
 def get_ig_user():
+    """Return (instagram user id, username).
+
+    With a Unified login system-user token the Instagram account id is given in
+    IG_USER_ID (GitHub Variable or workflow env). Without it, fall back to /me
+    (Instagram Login tokens).
+    """
+    ig_id = os.environ.get("IG_USER_ID", "").strip()
+    if ig_id:
+        info = api("GET", ig_id, {"fields": "username"})
+        return ig_id, info.get("username", "?")
     me = api("GET", "me", {"fields": "user_id,username"})
     uid = me.get("user_id") or me.get("id")
     if not uid:
