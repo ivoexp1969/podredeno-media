@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Europe/Sofia")
 PUBLISH_HOUR = 18
+CATCHUP_DAYS = 2  # a late scheduled run also publishes overdue entries this many days back
 # Unified login (system-user token) publishes through graph.facebook.com.
 GRAPH_BASE = (os.environ.get("GRAPH_BASE") or "https://graph.facebook.com").rstrip("/")
 GRAPH_VERSION = os.environ.get("GRAPH_VERSION") or "v24.0"
@@ -266,19 +267,31 @@ def check_urls(entry):
 
 def cmd_publish(args):
     root = Path(args.root).resolve()
-    now = dt.datetime.now(TZ)
+    fake_now = os.environ.get("IG_NOW", "")  # tests only: ISO time in Sofia
+    now = dt.datetime.fromisoformat(fake_now).replace(tzinfo=TZ) if fake_now else dt.datetime.now(TZ)
     date = args.date or now.date().isoformat()
     try:
         dt.date.fromisoformat(date)
     except ValueError:
         raise PublishError(f"bad date {date!r}, expected YYYY-MM-DD") from None
 
-    if args.respect_time and date == now.date().isoformat() and now.hour < PUBLISH_HOUR:
+    dates = [date]
+    if args.respect_time and not args.date:
+        # GitHub can start scheduled runs hours late, even after midnight.
+        # Catch up on recent days whose entries are still in the queue.
+        today = now.date()
+        dates = [(today - dt.timedelta(days=d)).isoformat() for d in range(CATCHUP_DAYS, 0, -1)]
+        if now.hour >= PUBLISH_HOUR:
+            dates.append(today.isoformat())
+        else:
+            log(f"Sofia time is {now:%H:%M}; today's entry waits until {PUBLISH_HOUR}:00.")
+    elif args.respect_time and date == now.date().isoformat() and now.hour < PUBLISH_HOUR:
         log(f"Sofia time is {now:%H:%M}; publishing starts at {PUBLISH_HOUR}:00. Nothing to do.")
         return 0
 
     rc = 0
-    for name in (date, f"{date}-story"):
+    names = [n for d in dates for n in (d, f"{d}-story")]
+    for name in names:
         try:
             publish_one(args, root, name)
         except PublishError as e:

@@ -5,6 +5,10 @@ on:
     # GitHub cron is UTC only. The script skips the run until 18:00 Sofia time.
     - cron: "0 15 * * *"  # 18:00 Sofia in summer (EEST, UTC+3); 17:00 in winter -> skipped
     - cron: "0 16 * * *"  # 18:00 Sofia in winter (EET, UTC+2); in summer a retry at 19:00
+    # Retries: GitHub often starts scheduled runs late; a run after midnight still
+    # publishes the previous day's entry (see CATCHUP_DAYS in the script).
+    - cron: "0 17 * * *"
+    - cron: "0 19 * * *"
   workflow_dispatch:
     inputs:
       date:

@@ -118,13 +118,16 @@ class PublishTests(unittest.TestCase):
     def queue(self, entry, date="2026-11-17"):
         (self.root / "queue" / f"{date}.json").write_text(json.dumps(entry, ensure_ascii=False), encoding="utf-8")
 
-    def run_script(self, *args, token=TOKEN, ig_user_id=None):
+    def run_script(self, *args, token=TOKEN, ig_user_id=None, now=None):
         env = dict(os.environ, GRAPH_BASE=self.base, GRAPH_VERSION="v24.0",
                    PAGES_BASE=self.base + "/pages", IG_ACCESS_TOKEN=token, POLL_INTERVAL="0.01")
         env.pop("GITHUB_ACTIONS", None)
         env.pop("IG_USER_ID", None)
         if ig_user_id:
             env["IG_USER_ID"] = ig_user_id
+        env.pop("IG_NOW", None)
+        if now:
+            env["IG_NOW"] = now
         return subprocess.run([sys.executable, str(SCRIPT), *args], env=env,
                               capture_output=True, text=True, timeout=60)
 
@@ -251,6 +254,39 @@ class PublishTests(unittest.TestCase):
         r = self.run_script("publish", "--date", "2026-11-18", "--root", str(self.root))
         self.assertEqual(r.returncode, 0)
         self.assertIn("No queue entry", r.stdout)
+
+    def test_late_scheduled_run_after_midnight_catches_up(self):
+        # GitHub started the 18:00 run at 00:43 the next day: yesterday's post must still go out.
+        self.queue(self.carousel(), date="2026-11-17")
+        r = self.run_script("publish", "--respect-time", "--root", str(self.root), now="2026-11-18T00:43:00")
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        self.assertTrue((self.root / "published" / "2026-11-17.json").exists())
+        self.assertEqual(sum(1 for c in Fake.calls if c[1].endswith("media_publish")), 1)
+
+    def test_scheduled_run_before_18_does_not_publish_today(self):
+        self.queue(self.carousel(), date="2026-11-18")
+        r = self.run_script("publish", "--respect-time", "--root", str(self.root), now="2026-11-18T17:00:00")
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        self.assertTrue((self.root / "queue" / "2026-11-18.json").exists())
+        self.assertFalse(any(c[1].endswith("media_publish") for c in Fake.calls))
+
+    def test_scheduled_run_after_18_publishes_today_and_story(self):
+        make_jpeg(self.root / "media" / "s.jpg", 1080, 1920)
+        self.queue(self.carousel(), date="2026-11-18")
+        (self.root / "queue" / "2026-11-18-story.json").write_text(
+            json.dumps({"type": "story", "files": ["media/s.jpg"], "app": "navici"}), encoding="utf-8")
+        r = self.run_script("publish", "--respect-time", "--root", str(self.root), now="2026-11-18T18:05:00")
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        self.assertTrue((self.root / "published" / "2026-11-18.json").exists())
+        self.assertTrue((self.root / "published" / "2026-11-18-story.json").exists())
+        self.assertEqual(sum(1 for c in Fake.calls if c[1].endswith("media_publish")), 2)
+
+    def test_catchup_ignores_entries_older_than_limit(self):
+        self.queue(self.carousel(), date="2026-11-15")
+        r = self.run_script("publish", "--respect-time", "--root", str(self.root), now="2026-11-18T18:05:00")
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        self.assertTrue((self.root / "queue" / "2026-11-15.json").exists())
+        self.assertFalse(any(c[1].endswith("media_publish") for c in Fake.calls))
 
     def test_refresh_writes_token_file(self):
         out = self.root / "tok"
