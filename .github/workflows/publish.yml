@@ -9,6 +9,11 @@ on:
     # publishes the previous day's entry (see CATCHUP_DAYS in the script).
     - cron: "0 17 * * *"
     - cron: "0 19 * * *"
+  # Reliable kick: a daily cloud job pushes a file to trigger/ at 18:00 Sofia
+  # (GitHub cron is often hours late on small repos).
+  push:
+    branches: [main]
+    paths: ["trigger/**"]
   workflow_dispatch:
     inputs:
       date:
@@ -46,7 +51,7 @@ jobs:
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
         run: |
           args=(publish)
-          if [ "$EVENT_NAME" = "schedule" ]; then
+          if [ "$EVENT_NAME" = "schedule" ] || [ "$EVENT_NAME" = "push" ]; then
             args+=(--respect-time)
           else
             [ -n "$INPUT_DATE" ] && args+=(--date "$INPUT_DATE")
