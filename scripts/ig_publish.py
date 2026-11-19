@@ -290,7 +290,15 @@ def cmd_publish(args):
         return 0
 
     rc = 0
-    names = [n for d in dates for n in (d, f"{d}-story")]
+    if args.respect_time:
+        # Automatic runs post only the feed entry. Stories are posted by hand in the
+        # Instagram app, because the API cannot add the "Link" sticker.
+        names = list(dates)
+        for d in dates:
+            if (root / "queue" / f"{d}-story.json").exists():
+                log(f"queue/{d}-story.json is left for manual posting (auto-publish of stories is off).")
+    else:
+        names = [n for d in dates for n in (d, f"{d}-story")]
     for name in names:
         try:
             publish_one(args, root, name)

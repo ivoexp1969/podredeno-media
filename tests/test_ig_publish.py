@@ -270,7 +270,7 @@ class PublishTests(unittest.TestCase):
         self.assertTrue((self.root / "queue" / "2026-11-18.json").exists())
         self.assertFalse(any(c[1].endswith("media_publish") for c in Fake.calls))
 
-    def test_scheduled_run_after_18_publishes_today_and_story(self):
+    def test_scheduled_run_after_18_publishes_today_but_not_story(self):
         make_jpeg(self.root / "media" / "s.jpg", 1080, 1920)
         self.queue(self.carousel(), date="2026-11-18")
         (self.root / "queue" / "2026-11-18-story.json").write_text(
@@ -278,8 +278,11 @@ class PublishTests(unittest.TestCase):
         r = self.run_script("publish", "--respect-time", "--root", str(self.root), now="2026-11-18T18:05:00")
         self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
         self.assertTrue((self.root / "published" / "2026-11-18.json").exists())
-        self.assertTrue((self.root / "published" / "2026-11-18-story.json").exists())
-        self.assertEqual(sum(1 for c in Fake.calls if c[1].endswith("media_publish")), 2)
+        # Stories are posted by hand (link sticker), so they stay in the queue.
+        self.assertTrue((self.root / "queue" / "2026-11-18-story.json").exists())
+        self.assertFalse((self.root / "published" / "2026-11-18-story.json").exists())
+        self.assertFalse(any(c[0] == "POST" and c[2].get("media_type") == "STORIES" for c in Fake.calls))
+        self.assertEqual(sum(1 for c in Fake.calls if c[1].endswith("media_publish")), 1)
 
     def test_catchup_ignores_entries_older_than_limit(self):
         self.queue(self.carousel(), date="2026-11-15")
